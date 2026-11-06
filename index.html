@@ -3,5 +3,12 @@
 <meta name="theme-color" content="#12264d"/><meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="Nuestra Cuenta"/>
 <link rel="apple-touch-icon" href="/icon-192.png"/><title>NUESTRA CUENTA</title></head>
-<body><div id="root"><p style="font-family:sans-serif;text-align:center;margin-top:40vh;color:#12264d">Cargando NUESTRA CUENTA…</p></div>
+<body><script>
+function show(m){var r=document.getElementById('root');if(r&&r.textContent.indexOf('Cargando NUESTRA')===0){r.innerHTML='<div style="font-family:sans-serif;padding:24px;color:#12264d"><h3>No se pudo abrir la app</h3><p>'+m+'</p><button onclick="fix()" style="padding:14px 18px;font-size:16px;border:0;border-radius:12px;background:#12264d;color:#fff">Reparar y reiniciar</button></div>'}}
+function fix(){try{navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.unregister()})});caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)})})}catch(e){}setTimeout(function(){location.reload()},800)}
+window.addEventListener('error',function(e){show(e.message)});
+window.addEventListener('unhandledrejection',function(e){show(String((e.reason&&e.reason.message)||e.reason))});
+setTimeout(function(){show('Tarda demasiado en cargar.')},12000);
+</script>
+<div id="root"><p style="font-family:sans-serif;text-align:center;margin-top:40vh;color:#12264d">Cargando NUESTRA CUENTA…</p></div>
 <script type="module" src="/src/main.tsx"></script></body></html>

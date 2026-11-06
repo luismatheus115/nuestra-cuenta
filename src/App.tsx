@@ -72,19 +72,20 @@ function Expenses({ me, people }: { me: Profile; people: Profile[] }) {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null); const [ready, setReady] = useState(false)
-  const [me, setMe] = useState<Profile | null>(null); const [people, setPeople] = useState<Profile[]>([]); const [tab, setTab] = useState('gastos'); const [agent, setAgent] = useState<any>(null)
-  useEffect(() => { supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
+  const [me, setMe] = useState<Profile | null>(null); const [people, setPeople] = useState<Profile[]>([]); const [tab, setTab] = useState('gastos'); const [agent, setAgent] = useState<any>(null); const [loaded, setLoaded] = useState(false)
+  useEffect(() => { Promise.race([supabase.auth.getSession(), new Promise<{ data: { session: null } }>(r => setTimeout(() => r({ data: { session: null } }), 8000))]).then(({ data }) => { setSession(data.session); setReady(true) })
     const { data: s } = supabase.auth.onAuthStateChange((_e, ses) => setSession(ses)); return () => s.subscription.unsubscribe() }, [])
   const loadProfiles = useCallback(async () => {
     if (!session) return setMe(null)
-    const { data } = await supabase.from('profiles').select('*'); const all = (data ?? []) as Profile[]
-    setPeople(all); setMe(all.find(p => p.id === session.user.id) ?? null)
-    const { data: ag } = await supabase.from('agents').select('*').eq('user_id', session.user.id).maybeSingle(); setAgent(ag) }, [session])
+    let { data } = await supabase.from('profiles').select('*')
+    if (!(data ?? []).some((p: Profile) => p.id === session.user.id)) { await supabase.rpc('ensure_profile'); data = (await supabase.from('profiles').select('*')).data }
+    const all = (data ?? []) as Profile[]; setPeople(all); setMe(all.find(p => p.id === session.user.id) ?? null)
+    const { data: ag } = await supabase.from('agents').select('*').eq('user_id', session.user.id).maybeSingle(); setAgent(ag); setLoaded(true) }, [session])
   useEffect(() => { loadProfiles() }, [loadProfiles])
   const tabs = [['gastos', '💶', 'Gastos'], ['resumen', '📊', 'Resumen'], ['tareas', '✅', 'Tareas'], ['compras', '🛒', 'Compras'], ['deudores', '🔒', 'Deudores'], ['agentes', '🤝', 'Agentes']]
   if (!ready) return <div className="app"><p className="muted">Cargando…</p></div>
   if (!session) return <div className="app"><Auth /></div>
-  if (!me) return <div className="app"><p className="muted">Cargando perfil…</p></div>
+  if (!me) return <div className="app">{loaded ? <div className="card"><h1>No encontramos tu perfil</h1><p className="muted">Cierra sesión y vuelve a entrar. Si sigue igual, avisa a Luis.</p><button onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div> : <p className="muted">Cargando perfil…</p>}</div>
   if (agent) return <div className="app"><AgentApp agent={agent} /></div>
   if (!me.space_id) return <div className="app"><SpaceSetup onDone={loadProfiles} /><ClaimAgent onDone={loadProfiles} /></div>
   return <div className="app"><div className="row"><h1>Hola, {me.name}</h1><button className="sec" style={{ width: 'auto', padding: '8px 12px' }} onClick={() => supabase.auth.signOut()}>Salir</button></div>
