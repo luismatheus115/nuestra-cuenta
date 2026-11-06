@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { Summary, Tasks, Shopping, Debtors } from './modules'
+import { AdminAgents, AgentApp, ClaimAgent } from './agentes'
 const CATS = ['Alimentación','Hogar','Transporte','Salud','Ocio','Compras','Otros']
 const eur = (n: number) => new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(n)
 type Profile = { id: string; name: string; space_id: string | null }
@@ -71,21 +72,23 @@ function Expenses({ me, people }: { me: Profile; people: Profile[] }) {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null); const [ready, setReady] = useState(false)
-  const [me, setMe] = useState<Profile | null>(null); const [people, setPeople] = useState<Profile[]>([]); const [tab, setTab] = useState('gastos')
+  const [me, setMe] = useState<Profile | null>(null); const [people, setPeople] = useState<Profile[]>([]); const [tab, setTab] = useState('gastos'); const [agent, setAgent] = useState<any>(null)
   useEffect(() => { supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
     const { data: s } = supabase.auth.onAuthStateChange((_e, ses) => setSession(ses)); return () => s.subscription.unsubscribe() }, [])
   const loadProfiles = useCallback(async () => {
     if (!session) return setMe(null)
     const { data } = await supabase.from('profiles').select('*'); const all = (data ?? []) as Profile[]
-    setPeople(all); setMe(all.find(p => p.id === session.user.id) ?? null) }, [session])
+    setPeople(all); setMe(all.find(p => p.id === session.user.id) ?? null)
+    const { data: ag } = await supabase.from('agents').select('*').eq('user_id', session.user.id).maybeSingle(); setAgent(ag) }, [session])
   useEffect(() => { loadProfiles() }, [loadProfiles])
-  const tabs = [['gastos', '💶', 'Gastos'], ['resumen', '📊', 'Resumen'], ['tareas', '✅', 'Tareas'], ['compras', '🛒', 'Compras'], ['deudores', '🔒', 'Deudores']]
+  const tabs = [['gastos', '💶', 'Gastos'], ['resumen', '📊', 'Resumen'], ['tareas', '✅', 'Tareas'], ['compras', '🛒', 'Compras'], ['deudores', '🔒', 'Deudores'], ['agentes', '🤝', 'Agentes']]
   if (!ready) return <div className="app"><p className="muted">Cargando…</p></div>
   if (!session) return <div className="app"><Auth /></div>
   if (!me) return <div className="app"><p className="muted">Cargando perfil…</p></div>
-  if (!me.space_id) return <div className="app"><SpaceSetup onDone={loadProfiles} /></div>
+  if (agent) return <div className="app"><AgentApp agent={agent} /></div>
+  if (!me.space_id) return <div className="app"><SpaceSetup onDone={loadProfiles} /><ClaimAgent onDone={loadProfiles} /></div>
   return <div className="app"><div className="row"><h1>Hola, {me.name}</h1><button className="sec" style={{ width: 'auto', padding: '8px 12px' }} onClick={() => supabase.auth.signOut()}>Salir</button></div>
     {tab === 'gastos' && <Expenses me={me} people={people} />}{tab === 'resumen' && <Summary people={people} />}{tab === 'tareas' && <Tasks people={people} />}
-    {tab === 'compras' && <Shopping people={people} />}{tab === 'deudores' && <Debtors />}
-    <nav>{tabs.filter(t => t[0] !== 'deudores' || me.name.toLowerCase().startsWith('luis')).map(([k, i, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}><span>{i}</span>{l}</button>)}</nav></div>
+    {tab === 'compras' && <Shopping people={people} />}{tab === 'deudores' && <Debtors />}{tab === 'agentes' && <AdminAgents />}
+    <nav>{tabs.filter(t => !['deudores', 'agentes'].includes(t[0]) || me.name.toLowerCase().startsWith('luis')).map(([k, i, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}><span>{i}</span>{l}</button>)}</nav></div>
 }
