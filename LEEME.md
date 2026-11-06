@@ -20,3 +20,6 @@ Luis crea su cuenta (nombre "Luis") > "Crear espacio nuevo" > copia el código. 
 
 ## Desarrollo local
 `npm install`, copiar `.env.example` a `.env` con tus valores, `npm run dev`.
+
+## Módulo Agentes (ampliación)
+Ejecuta también `supabase/agentes.sql` en el SQL Editor de Supabase.
