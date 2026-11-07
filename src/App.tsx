@@ -91,7 +91,7 @@ export default function App() {
   const isLuis = me.name.toLowerCase().startsWith('luis'); const special = tab === 'agentes' || tab === 'ganancias'; const open = (t: string) => { setFrom(tab); setTab(t) }
   const sm = { width: 'auto', padding: '8px 12px' } as const
   return <div className="app">{special
-    ? <div className="row" style={{ marginBottom: 12 }}><button className="sec" style={{ ...sm, fontSize: 20, margin: 0 }} onClick={() => setTab(from)}>←</button><h1 style={{ margin: 0 }}>{tab === 'agentes' ? 'Agentes' : 'Ganancias de agentes'}</h1>
+    ? <div className="row" style={{ marginBottom: 12 }}><button className="sec" style={{ ...sm, fontSize: 20, margin: 0 }} onClick={() => setTab(from)}>←</button><h1 style={{ margin: 0 }}>{tab === 'agentes' ? 'Agentes' : 'Mi ganancia por agentes'}</h1>
       {tab === 'agentes' ? <button className="sec" style={{ ...sm, margin: 0 }} onClick={() => open('ganancias')}>💰</button> : <span style={{ width: 48 }} />}</div>
     : <div className="row"><h1>Hola, {me.name}</h1><div>{isLuis && <button className="sec" style={sm} onClick={() => open('ganancias')}>💰 Ganancias</button>}{' '}<button className="sec" style={sm} onClick={() => supabase.auth.signOut()}>Salir</button></div></div>}
     {tab === 'gastos' && <Expenses me={me} people={people} />}{tab === 'resumen' && <Summary people={people} />}{tab === 'tareas' && <Tasks people={people} />}

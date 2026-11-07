@@ -69,18 +69,31 @@ export function AgentApp({ agent }: { agent: R }) {
 
 export function AdminAgents() {
   const [ags, setAgs] = useState<R[]>([]); const [sh, setSh] = useState<R[]>([]); const [name, setName] = useState(''); const [pct, setPct] = useState('3'); const [msg, setMsg] = useState('')
-  const [pcts, setPcts] = useState<Record<string, string>>({}); const [rates, setRates] = useState<Record<string, string>>({})
+  const [pcts, setPcts] = useState<Record<string, string>>({}); const [rates, setRates] = useState<Record<string, string>>({}); const [myp, setMyp] = useState<Record<string, string>>({}); const [gains, setGains] = useState<Record<string, R>>({})
   const load = useCallback(async () => {
-    const a = await supabase.from('agents').select('*').order('created_at'); const s = await supabase.from('agent_shipments').select('*').order('sent_on', { ascending: false }); setAgs(a.data ?? []); setSh(s.data ?? []) }, [])
+    const a = await supabase.from('agents').select('*').order('created_at'); const s = await supabase.from('agent_shipments').select('*').order('sent_on', { ascending: false }); const g = await supabase.from('shipment_gains').select('*'); const m: Record<string, R> = {}; (g.data ?? []).forEach((r: R) => { m[r.shipment_id] = r }); setAgs(a.data ?? []); setSh(s.data ?? []); setGains(m) }, [])
   useEffect(() => { load(); const ch = supabase.channel('agents-admin').on('postgres_changes', { event: '*', schema: 'public', table: 'agent_shipments' }, load).subscribe(); return () => { supabase.removeChannel(ch) } }, [load])
   async function add() {
     const p = Number(pct.replace(',', '.')); if (!name.trim() || !(p >= 0 && p <= 100)) return setMsg('Indica nombre y un % entre 0 y 100.')
     const { error } = await supabase.from('agents').insert({ name: name.trim(), commission_pct: p }); if (error) return setMsg(error.message); setMsg(''); setName(''); load()
   }
+  const num = (v: string) => Number((v || '0').replace(',', '.'))
+  const lastMy = (a: R) => { try { return localStorage.getItem('mypct_' + a.id) || '0' } catch { return '0' } }
+  const pctA = (x: R, a: R) => num(pcts[x.id] ?? String(a.commission_pct)); const pctM = (x: R, a: R) => num(myp[x.id] ?? lastMy(a))
+  const cents = (amt: number, p: number) => Math.round(amt * p) / 100
   async function accept(x: R, a: R) {
-    const p = Number((pcts[x.id] ?? String(a.commission_pct)).replace(',', '.')); if (!(p >= 0 && p <= 100)) return alert('% no válido')
-    await supabase.from('agent_shipments').update({ commission_pct: p, commission: Math.round(Number(x.amount) * p) / 100, status: 'aceptado' }).eq('id', x.id); load()
+    const p = pctA(x, a), m = pctM(x, a); if (!(p >= 0 && p <= 100) || !(m >= 0 && m <= 100)) return alert('% no válido')
+    await supabase.from('agent_shipments').update({ commission_pct: p, commission: cents(Number(x.amount), p), status: 'aceptado' }).eq('id', x.id)
+    await supabase.from('shipment_gains').upsert({ shipment_id: x.id, pct: m, amount: cents(Number(x.amount), m) })
+    try { localStorage.setItem('mypct_' + a.id, String(m)) } catch { /* sin almacenamiento */ }
+    load()
   }
+  async function delShipment(x: R) { if (confirm('¿Borrar este registro de envío? No se puede deshacer.')) { await supabase.from('agent_shipments').delete().eq('id', x.id); load() } }
+  async function delAll(a: R) {
+    const n = sh.filter(x => x.agent_id === a.id).length; if (!n) return alert('No hay registros.')
+    if (!confirm(`Se borrarán los ${n} registros de envíos de ${a.name}, incluidos los archivados. No se puede deshacer. ¿Continuar?`)) return
+    if (!confirm('¿Seguro? También se perderá el historial de ganancias de este agente.')) return
+    await supabase.from('agent_shipments').delete().eq('agent_id', a.id); load() }
   const today = () => new Date().toISOString().slice(0, 10)
   const unpaid = (a: R, patch: R) => supabase.from('agent_shipments').update(patch).eq('agent_id', a.id).eq('status', 'aceptado').eq('paid', false)
   async function payEur(a: R) { const b = { paid: true, paid_on: today() }; await unpaid(a, b).eq('currency', 'EUR'); await unpaid(a, b).eq('currency', 'USD').not('paid_eur', 'is', null); load() }
@@ -104,7 +117,8 @@ export function AdminAgents() {
         <Goal v={earned(act, 'EUR')} goal={Number(a.goal_eur)} c="EUR" /><Goal v={earned(act, 'USD')} goal={Number(a.goal_usd)} c="USD" />
               {review.length > 0 && <><b style={{ display: 'block', marginTop: 10 }}>Por aceptar ({review.length})</b>{review.map(x => <div key={x.id} style={{ padding: '8px 0', borderTop: '1px solid #eef1f7' }}>
           <div className="row"><span>{x.client_name} · {fmt(x.sent_on)}</span><b>{money(Number(x.amount), x.currency)}</b></div>
-          <div className="row"><input inputMode="decimal" style={{ width: 90 }} value={pcts[x.id] ?? String(a.commission_pct)} onChange={e => setPcts({ ...pcts, [x.id]: e.target.value })} /><span className="muted">% → {money(Math.round(Number(x.amount) * Number((pcts[x.id] ?? String(a.commission_pct)).replace(',', '.') || 0)) / 100, x.currency)}</span></div>
+          <div className="row" style={{ gap: 8 }}><div style={{ flex: 1 }}><span className="muted">% agente</span><input inputMode="decimal" value={pcts[x.id] ?? String(a.commission_pct)} onChange={e => setPcts({ ...pcts, [x.id]: e.target.value })} /></div><div style={{ flex: 1 }}><span className="muted">% mío</span><input inputMode="decimal" value={myp[x.id] ?? lastMy(a)} onChange={e => setMyp({ ...myp, [x.id]: e.target.value })} /></div></div>
+          <p className="muted" style={{ margin: 0 }}>Agente: <b>{money(cents(Number(x.amount), pctA(x, a)), x.currency)}</b> · Yo: <b>{money(cents(Number(x.amount), pctM(x, a)), x.currency)}</b></p>
           <div className="row"><button style={small} onClick={() => accept(x, a)}>✓ Aceptar</button><button className="del" onClick={async () => { if (confirm('¿Rechazar y eliminar este envío?')) { await supabase.from('agent_shipments').delete().eq('id', x.id); load() } }}>Rechazar</button></div></div>)}</>}
         <div className="row" style={{ marginTop: 10 }}><span>Pendiente de pago</span><b className="neg">{money(st.pe, 'EUR')} · {money(st.pu, 'USD')}</b></div>
         {st.cu > 0 && <p className="muted" style={{ margin: 0 }}>El pendiente en € incluye {money(st.ce, 'EUR')} convertidos de {money(st.cu, 'USD')}</p>}
@@ -116,25 +130,22 @@ export function AdminAgents() {
           <button className="sec" onClick={() => { if (confirm(`¿Pagar ${money(st.pu, 'USD')} en dólares a ${a.name}?`)) payUsd(a) }}>Pagar en $ ({money(st.pu, 'USD')})</button></>}
         {act.some(x => x.paid) && <button className="sec" style={{ marginTop: 10 }} onClick={() => { if (confirm(`Se guardarán en Registros los envíos ya pagados de ${a.name} y sus totales y su meta empezarán de cero. Los pendientes de pago se mantienen. ¿Restaurar el mes?`)) archive(a) }}>🔄 Restaurar mes (queda guardado en Registros)</button>}
         <details><summary className="muted" style={{ marginTop: 8 }}>Envíos actuales ({act.length})</summary>
-          {act.map(x => <p className="muted" key={x.id} style={{ borderTop: '1px solid #eef1f7', padding: '6px 0', margin: 0 }}>{fmt(x.sent_on)} · {x.client_name} · {money(Number(x.amount), x.currency)}{x.status === 'aceptado' ? ` → ${money(com(x), x.currency)} (${Number(x.commission_pct)}%)${x.paid_eur != null ? ' ≈ ' + money(Number(x.paid_eur), 'EUR') : ''}${x.paid ? ' ✅' : ' ⏳'}` : ' · 🕒 por aceptar'}</p>)}</details>
+          {act.map(x => <div className="row" key={x.id} style={{ borderTop: '1px solid #eef1f7', padding: '6px 0' }}><span className="muted">{fmt(x.sent_on)} · {x.client_name} · {money(Number(x.amount), x.currency)}{x.status === 'aceptado' ? ` → ${money(com(x), x.currency)} (${Number(x.commission_pct)}%)${x.paid_eur != null ? ' ≈ ' + money(Number(x.paid_eur), 'EUR') : ''}${x.paid ? ' ✅' : ' ⏳'}${gains[x.id] ? ' · yo ' + money(Number(gains[x.id].amount), x.currency) : ''}` : ' · 🕒 por aceptar'}</span><button className="del" style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => delShipment(x)}>🗑</button></div>)}</details>
         <div style={{ marginTop: 8 }}><Registros rows={mine} /></div>
-        <button className="del" style={{ marginTop: 8 }} onClick={async () => { if (confirm(`¿Eliminar a ${a.name} y todos sus envíos?`)) { await supabase.from('agents').delete().eq('id', a.id); load() } }}>Eliminar agente</button></div> })}</>
+        <button className="del" style={{ marginTop: 8, marginRight: 8 }} onClick={() => delAll(a)}>🗑 Borrar registros</button><button className="del" style={{ marginTop: 8 }} onClick={async () => { if (confirm(`¿Eliminar a ${a.name} y todos sus envíos?`)) { await supabase.from('agents').delete().eq('id', a.id); load() } }}>Eliminar agente</button></div> })}</>
 }
 
 export function AgentEarnings() {
-  const [ags, setAgs] = useState<R[]>([]); const [sh, setSh] = useState<R[]>([]); const [per, setPer] = useState<'d' | 'w' | 'm' | 't'>('m')
-  const load = useCallback(async () => { const a = await supabase.from('agents').select('*').order('created_at'); const s = await supabase.from('agent_shipments').select('*'); setAgs(a.data ?? []); setSh(s.data ?? []) }, [])
-  useEffect(() => { load(); const ch = supabase.channel('agents-earn').on('postgres_changes', { event: '*', schema: 'public', table: 'agent_shipments' }, load).subscribe(); return () => { supabase.removeChannel(ch) } }, [load])
-  const t = ymd(new Date())
+  const [ags, setAgs] = useState<R[]>([]); const [sh, setSh] = useState<R[]>([]); const [gn, setGn] = useState<R[]>([]); const [per, setPer] = useState<'d' | 'w' | 'm' | 't'>('m')
+  const load = useCallback(async () => { const a = await supabase.from('agents').select('*').order('created_at'); const s = await supabase.from('agent_shipments').select('*'); const g = await supabase.from('shipment_gains').select('*'); setAgs(a.data ?? []); setSh(s.data ?? []); setGn(g.data ?? []) }, [])
+  useEffect(() => { load(); const ch = supabase.channel('agents-earn').on('postgres_changes', { event: '*', schema: 'public', table: 'agent_shipments' }, load).on('postgres_changes', { event: '*', schema: 'public', table: 'shipment_gains' }, load).subscribe(); return () => { supabase.removeChannel(ch) } }, [load])
+  const t = ymd(new Date()); const byId = new Map(sh.map(x => [x.id, x] as [string, R]))
   const inP = (x: R) => per === 't' || (per === 'd' ? x.sent_on === t : per === 'w' ? wk(x.sent_on) === wk(t) : String(x.sent_on).startsWith(t.slice(0, 7)))
-  const rows = sh.filter(inP)
-  const block = (l: R[]) => { const s = stats(l); const ok = l.filter(x => x.status === 'aceptado'); const am = (c: string) => sum(ok.filter(x => x.currency === c), x => Number(x.amount))
-    return <><div className="row"><span>Enviado por sus clientes</span><b>{money(am('EUR'), 'EUR')} · {money(am('USD'), 'USD')}</b></div>
-      <div className="row"><span>Comisión generada</span><b>{money(s.ge + s.pe, 'EUR')} · {money(s.gu + s.pu, 'USD')}</b></div>
-      <div className="row"><span>Ya pagada</span><b style={{ color: 'var(--verde)' }}>{money(s.ge, 'EUR')} · {money(s.gu, 'USD')}</b></div>
-      <div className="row"><span>Pendiente de pago</span><b className="neg">{money(s.pe, 'EUR')} · {money(s.pu, 'USD')}</b></div></> }
+  const rows = gn.map(g => ({ g, s: byId.get(g.shipment_id) })).filter(r => r.s && inP(r.s)) as { g: R; s: R }[]
+  const block = (l: { g: R; s: R }[]) => { const tt = (c: string) => sum(l.filter(r => r.s.currency === c), r => Number(r.g.amount))
+    return <><div className="row"><span>Mi ganancia</span><b style={{ color: 'var(--verde)' }}>{money(tt('EUR'), 'EUR')} · {money(tt('USD'), 'USD')}</b></div><p className="muted" style={{ margin: 0 }}>{l.length} envío(s)</p></> }
   return <><div className="card"><div className="row">{([['d', 'Hoy'], ['w', 'Semana'], ['m', 'Mes'], ['t', 'Total']] as const).map(([k, l]) => <button key={k} style={{ ...small, flex: 1 }} className={per === k ? '' : 'sec'} onClick={() => setPer(k)}>{l}</button>)}</div>
-    <p className="muted">Incluye también los registros ya archivados. El € incluye los dólares convertidos.</p></div>
-    <div className="card"><b>Todos los agentes</b>{block(rows)}</div>
-    {ags.map(a => <div className="card" key={a.id}><b>{a.name}</b>{block(rows.filter(x => x.agent_id === a.id))}</div>)}</>
+    <p className="muted">Solo tu ganancia en cada envío; no incluye la comisión de los agentes. Incluye registros archivados.</p></div>
+    <div className="card"><b>Total de todos los agentes</b>{block(rows)}</div>
+    {ags.map(a => <div className="card" key={a.id}><b>{a.name}</b>{block(rows.filter(r => r.s.agent_id === a.id))}</div>)}</>
 }
