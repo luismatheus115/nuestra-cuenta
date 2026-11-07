@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { Summary, Tasks, Shopping, Debtors } from './modules'
-import { AdminAgents, AgentApp, ClaimAgent } from './agentes'
+import { AdminAgents, AgentApp, AgentEarnings, ClaimAgent } from './agentes'
 const CATS = ['Alimentación','Hogar','Transporte','Salud','Ocio','Compras','Otros']
 const eur = (n: number) => new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(n)
 type Profile = { id: string; name: string; space_id: string | null }
@@ -72,7 +72,7 @@ function Expenses({ me, people }: { me: Profile; people: Profile[] }) {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null); const [ready, setReady] = useState(false)
-  const [me, setMe] = useState<Profile | null>(null); const [people, setPeople] = useState<Profile[]>([]); const [tab, setTab] = useState('gastos'); const [agent, setAgent] = useState<any>(null); const [loaded, setLoaded] = useState(false)
+  const [me, setMe] = useState<Profile | null>(null); const [people, setPeople] = useState<Profile[]>([]); const [tab, setTab] = useState('gastos'); const [agent, setAgent] = useState<any>(null); const [loaded, setLoaded] = useState(false); const [from, setFrom] = useState('gastos')
   useEffect(() => { Promise.race([supabase.auth.getSession(), new Promise<{ data: { session: null } }>(r => setTimeout(() => r({ data: { session: null } }), 8000))]).then(({ data }) => { setSession(data.session); setReady(true) })
     const { data: s } = supabase.auth.onAuthStateChange((_e, ses) => setSession(ses)); return () => s.subscription.unsubscribe() }, [])
   const loadProfiles = useCallback(async () => {
@@ -88,8 +88,13 @@ export default function App() {
   if (!me) return <div className="app">{loaded ? <div className="card"><h1>No encontramos tu perfil</h1><p className="muted">Cierra sesión y vuelve a entrar. Si sigue igual, avisa a Luis.</p><button onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div> : <p className="muted">Cargando perfil…</p>}</div>
   if (agent) return <div className="app"><AgentApp agent={agent} /></div>
   if (!me.space_id) return <div className="app"><SpaceSetup onDone={loadProfiles} /><ClaimAgent onDone={loadProfiles} /></div>
-  return <div className="app"><div className="row"><h1>Hola, {me.name}</h1><button className="sec" style={{ width: 'auto', padding: '8px 12px' }} onClick={() => supabase.auth.signOut()}>Salir</button></div>
+  const isLuis = me.name.toLowerCase().startsWith('luis'); const special = tab === 'agentes' || tab === 'ganancias'; const open = (t: string) => { setFrom(tab); setTab(t) }
+  const sm = { width: 'auto', padding: '8px 12px' } as const
+  return <div className="app">{special
+    ? <div className="row" style={{ marginBottom: 12 }}><button className="sec" style={{ ...sm, fontSize: 20, margin: 0 }} onClick={() => setTab(from)}>←</button><h1 style={{ margin: 0 }}>{tab === 'agentes' ? 'Agentes' : 'Ganancias de agentes'}</h1>
+      {tab === 'agentes' ? <button className="sec" style={{ ...sm, margin: 0 }} onClick={() => open('ganancias')}>💰</button> : <span style={{ width: 48 }} />}</div>
+    : <div className="row"><h1>Hola, {me.name}</h1><div>{isLuis && <button className="sec" style={sm} onClick={() => open('ganancias')}>💰 Ganancias</button>}{' '}<button className="sec" style={sm} onClick={() => supabase.auth.signOut()}>Salir</button></div></div>}
     {tab === 'gastos' && <Expenses me={me} people={people} />}{tab === 'resumen' && <Summary people={people} />}{tab === 'tareas' && <Tasks people={people} />}
-    {tab === 'compras' && <Shopping people={people} />}{tab === 'deudores' && <Debtors />}{tab === 'agentes' && <AdminAgents />}
-    <nav>{tabs.filter(t => !['deudores', 'agentes'].includes(t[0]) || me.name.toLowerCase().startsWith('luis')).map(([k, i, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}><span>{i}</span>{l}</button>)}</nav></div>
+    {tab === 'compras' && <Shopping people={people} />}{tab === 'deudores' && <Debtors />}{tab === 'agentes' && <AdminAgents />}{tab === 'ganancias' && <AgentEarnings />}
+    {!special && <nav>{tabs.filter(t => !['deudores', 'agentes'].includes(t[0]) || me.name.toLowerCase().startsWith('luis')).map(([k, i, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => k === 'agentes' ? open(k) : setTab(k)}><span>{i}</span>{l}</button>)}</nav>}</div>
 }

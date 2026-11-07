@@ -88,25 +88,21 @@ export function AdminAgents() {
   async function convert(a: R, rate: number) {
     await Promise.all(sh.filter(x => x.agent_id === a.id && x.status === 'aceptado' && !x.paid && x.currency === 'USD' && x.paid_eur == null).map(x => supabase.from('agent_shipments').update({ paid_rate: rate, paid_eur: Math.round(com(x) * rate * 100) / 100 }).eq('id', x.id))); load() }
   async function archive(a: R) { await supabase.from('agent_shipments').update({ archived: true }).eq('agent_id', a.id).eq('paid', true).eq('archived', false); load() }
-  async function setGoal(a: R, f: string, v: number) { await supabase.from('agents').update({ [f]: v }).eq('id', a.id); load() }
-  const GOALS = [50, 100, 200, 300, 500, 1000]
-  const goalPick = (a: R, f: string, sym: string) => <div><p className="muted" style={{ margin: '8px 0 2px' }}>🎯 Meta mensual ({sym})</p><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-    {GOALS.map(g => <button key={g} style={{ ...small, margin: 0 }} className={Number(a[f]) === g ? '' : 'sec'} onClick={() => setGoal(a, f, g)}>{g}{sym}</button>)}
-    <button style={{ ...small, margin: 0 }} className={Number(a[f]) > 0 && !GOALS.includes(Number(a[f])) ? '' : 'sec'} onClick={() => { const v = prompt('Meta mensual (' + sym + ')', String(a[f])); if (v === null) return; const n = Number(v.replace(',', '.')); if (n >= 0) setGoal(a, f, n) }}>{Number(a[f]) > 0 && !GOALS.includes(Number(a[f])) ? Number(a[f]) + sym : 'Otra'}</button>
-    {Number(a[f]) > 0 && <button className="del" style={{ margin: 0 }} onClick={() => setGoal(a, f, 0)}>Quitar</button>}</div></div>
   const tot = stats(sh.filter(x => !x.archived))
   return <><div className="card"><h1>🤝 Agentes</h1><p className="muted">Crea el agente, fija su % habitual y pásale el código para que se registre.</p>
     <input placeholder="Nombre (ej. Yoiber)" value={name} onChange={e => setName(e.target.value)} />
     <input inputMode="decimal" placeholder="% habitual (ej. 3)" value={pct} onChange={e => setPct(e.target.value)} /><button onClick={add}>Crear agente</button>{msg && <p className="err">{msg}</p>}</div>
     <div className="card"><div className="row"><span>Envíos por aceptar</span><b>{tot.review}</b></div><div className="row"><span>Pendiente de pago (todos)</span><b className="neg">{money(tot.pe, 'EUR')} · {money(tot.pu, 'USD')}</b></div></div>
     {ags.map(a => { const mine = sh.filter(x => x.agent_id === a.id); const act = mine.filter(x => !x.archived); const st = stats(act); const rate = Number((rates[a.id] || '').replace(',', '.')); const review = act.filter(x => x.status === 'pendiente')
-      return <div className="card" key={a.id}><div className="row"><b>{a.name} · {Number(a.commission_pct)}% habitual</b><button className="sec" style={small} onClick={async () => {
+      return <div className="card" key={a.id}><div className="row"><b>{a.name} · {Number(a.commission_pct)}% habitual</b><div><button className="sec" style={small} onClick={async () => {
         const v = prompt('Nuevo % habitual (se propone al aceptar cada envío)', String(a.commission_pct)); if (!v) return; const p = Number(v.replace(',', '.')); if (!(p >= 0 && p <= 100)) return alert('% no válido')
-        await supabase.from('agents').update({ commission_pct: p }).eq('id', a.id); load() }}>% habitual</button></div>
+        await supabase.from('agents').update({ commission_pct: p }).eq('id', a.id); load() }}>% habitual</button>{' '}<button className="sec" style={small} onClick={async () => {
+          const e = prompt('Meta mensual de comisión en € (0 = sin meta)', String(a.goal_eur)); if (e === null) return; const u = prompt('Meta mensual de comisión en $ (0 = sin meta)', String(a.goal_usd)); if (u === null) return
+          const ge = Number(e.replace(',', '.')), gu = Number(u.replace(',', '.')); if (!(ge >= 0 && gu >= 0)) return alert('Importes no válidos')
+          await supabase.from('agents').update({ goal_eur: ge, goal_usd: gu }).eq('id', a.id); load() }}>🎯 Meta</button></div></div>
         <p className="muted">{a.user_id ? '✅ Conectado' : <>Código para que se una: <b style={{ fontSize: '1.1rem', color: 'var(--azul)' }}>{a.code}</b></>}</p>
         <Goal v={earned(act, 'EUR')} goal={Number(a.goal_eur)} c="EUR" /><Goal v={earned(act, 'USD')} goal={Number(a.goal_usd)} c="USD" />
-        {goalPick(a, 'goal_eur', '€')}{goalPick(a, 'goal_usd', '$')}
-        {review.length > 0 && <><b style={{ display: 'block', marginTop: 10 }}>Por aceptar ({review.length})</b>{review.map(x => <div key={x.id} style={{ padding: '8px 0', borderTop: '1px solid #eef1f7' }}>
+              {review.length > 0 && <><b style={{ display: 'block', marginTop: 10 }}>Por aceptar ({review.length})</b>{review.map(x => <div key={x.id} style={{ padding: '8px 0', borderTop: '1px solid #eef1f7' }}>
           <div className="row"><span>{x.client_name} · {fmt(x.sent_on)}</span><b>{money(Number(x.amount), x.currency)}</b></div>
           <div className="row"><input inputMode="decimal" style={{ width: 90 }} value={pcts[x.id] ?? String(a.commission_pct)} onChange={e => setPcts({ ...pcts, [x.id]: e.target.value })} /><span className="muted">% → {money(Math.round(Number(x.amount) * Number((pcts[x.id] ?? String(a.commission_pct)).replace(',', '.') || 0)) / 100, x.currency)}</span></div>
           <div className="row"><button style={small} onClick={() => accept(x, a)}>✓ Aceptar</button><button className="del" onClick={async () => { if (confirm('¿Rechazar y eliminar este envío?')) { await supabase.from('agent_shipments').delete().eq('id', x.id); load() } }}>Rechazar</button></div></div>)}</>}
@@ -123,4 +119,22 @@ export function AdminAgents() {
           {act.map(x => <p className="muted" key={x.id} style={{ borderTop: '1px solid #eef1f7', padding: '6px 0', margin: 0 }}>{fmt(x.sent_on)} · {x.client_name} · {money(Number(x.amount), x.currency)}{x.status === 'aceptado' ? ` → ${money(com(x), x.currency)} (${Number(x.commission_pct)}%)${x.paid_eur != null ? ' ≈ ' + money(Number(x.paid_eur), 'EUR') : ''}${x.paid ? ' ✅' : ' ⏳'}` : ' · 🕒 por aceptar'}</p>)}</details>
         <div style={{ marginTop: 8 }}><Registros rows={mine} /></div>
         <button className="del" style={{ marginTop: 8 }} onClick={async () => { if (confirm(`¿Eliminar a ${a.name} y todos sus envíos?`)) { await supabase.from('agents').delete().eq('id', a.id); load() } }}>Eliminar agente</button></div> })}</>
+}
+
+export function AgentEarnings() {
+  const [ags, setAgs] = useState<R[]>([]); const [sh, setSh] = useState<R[]>([]); const [per, setPer] = useState<'d' | 'w' | 'm' | 't'>('m')
+  const load = useCallback(async () => { const a = await supabase.from('agents').select('*').order('created_at'); const s = await supabase.from('agent_shipments').select('*'); setAgs(a.data ?? []); setSh(s.data ?? []) }, [])
+  useEffect(() => { load(); const ch = supabase.channel('agents-earn').on('postgres_changes', { event: '*', schema: 'public', table: 'agent_shipments' }, load).subscribe(); return () => { supabase.removeChannel(ch) } }, [load])
+  const t = ymd(new Date())
+  const inP = (x: R) => per === 't' || (per === 'd' ? x.sent_on === t : per === 'w' ? wk(x.sent_on) === wk(t) : String(x.sent_on).startsWith(t.slice(0, 7)))
+  const rows = sh.filter(inP)
+  const block = (l: R[]) => { const s = stats(l); const ok = l.filter(x => x.status === 'aceptado'); const am = (c: string) => sum(ok.filter(x => x.currency === c), x => Number(x.amount))
+    return <><div className="row"><span>Enviado por sus clientes</span><b>{money(am('EUR'), 'EUR')} · {money(am('USD'), 'USD')}</b></div>
+      <div className="row"><span>Comisión generada</span><b>{money(s.ge + s.pe, 'EUR')} · {money(s.gu + s.pu, 'USD')}</b></div>
+      <div className="row"><span>Ya pagada</span><b style={{ color: 'var(--verde)' }}>{money(s.ge, 'EUR')} · {money(s.gu, 'USD')}</b></div>
+      <div className="row"><span>Pendiente de pago</span><b className="neg">{money(s.pe, 'EUR')} · {money(s.pu, 'USD')}</b></div></> }
+  return <><div className="card"><div className="row">{([['d', 'Hoy'], ['w', 'Semana'], ['m', 'Mes'], ['t', 'Total']] as const).map(([k, l]) => <button key={k} style={{ ...small, flex: 1 }} className={per === k ? '' : 'sec'} onClick={() => setPer(k)}>{l}</button>)}</div>
+    <p className="muted">Incluye también los registros ya archivados. El € incluye los dólares convertidos.</p></div>
+    <div className="card"><b>Todos los agentes</b>{block(rows)}</div>
+    {ags.map(a => <div className="card" key={a.id}><b>{a.name}</b>{block(rows.filter(x => x.agent_id === a.id))}</div>)}</>
 }
